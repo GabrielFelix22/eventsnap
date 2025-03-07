@@ -51,7 +51,11 @@ export default function EventPage() {
 
       console.log("Buscando evento com ID:", id)
 
-      const { data, error } = await supabase.from("events").select("*").eq("id", id).single()
+      const { data, error } = await supabase
+        .from("events")
+        .select("*")
+        .eq("id", id)
+        .single()
 
       if (error) {
         console.error("Erro ao buscar evento:", error)
@@ -62,6 +66,7 @@ export default function EventPage() {
         throw new Error("Evento não encontrado")
       }
 
+      console.log("Dados retornados:", data)
       setEvent(data as Event)
     } catch (error) {
       console.error("Erro completo:", error)
@@ -190,6 +195,9 @@ export default function EventPage() {
     }
   }
 
+  const qrCodeUrl = typeof window !== "undefined" ? `${window.location.origin}/event/${id}` : ""
+  console.log("URL do QR Code:", qrCodeUrl)
+
   if (loading) {
     return (
       <div className="container flex h-screen items-center justify-center">
@@ -215,8 +223,6 @@ export default function EventPage() {
       </div>
     )
   }
-
-  const qrCodeUrl = typeof window !== "undefined" ? `${window.location.origin}/event/${id}` : ""
 
   return (
     <div className="container mx-auto px-4 py-8">
