@@ -1,23 +1,38 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
-import { useParams } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
-import { useToast } from "@/components/ui/use-toast"
 import { useSupabase } from "@/components/providers/supabase-provider"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { useToast } from "@/components/ui/use-toast"
 import { Camera } from "lucide-react"
-import QRCode from "qrcode.react"
 import Link from "next/link"
+import { useParams } from "next/navigation"
+import { QRCodeSVG as QRCode } from "qrcode.react"
+import { useEffect, useRef, useState } from "react"
+
+interface Event {
+  id: string
+  name: string
+  description?: string
+  created_at: string
+}
+
+interface Photo {
+  id: string
+  event_id: string
+  storage_path: string
+  taken_by: string
+  created_at: string
+}
 
 export default function EventPage() {
   const params = useParams()
   const id = typeof params?.id === "string" ? params.id : Array.isArray(params?.id) ? params.id[0] : null
   const { supabase } = useSupabase()
   const { toast } = useToast()
-  const [event, setEvent] = useState<any>(null)
+  const [event, setEvent] = useState<Event | null>(null)
   const [loading, setLoading] = useState(true)
-  const [photos, setPhotos] = useState<any[]>([])
+  const [photos, setPhotos] = useState<Photo[]>([])
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [isCameraOpen, setIsCameraOpen] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -34,6 +49,8 @@ export default function EventPage() {
     try {
       if (!id) throw new Error("ID do evento não fornecido")
 
+      console.log("Buscando evento com ID:", id)
+
       const { data, error } = await supabase.from("events").select("*").eq("id", id).single()
 
       if (error) {
@@ -45,12 +62,12 @@ export default function EventPage() {
         throw new Error("Evento não encontrado")
       }
 
-      setEvent(data)
-    } catch (error: any) {
+      setEvent(data as Event)
+    } catch (error) {
       console.error("Erro completo:", error)
       toast({
         title: "Erro ao carregar evento",
-        description: error.message,
+        description: error instanceof Error ? error.message : "Erro desconhecido",
         variant: "destructive",
       })
     } finally {
@@ -70,10 +87,10 @@ export default function EventPage() {
 
       if (error) throw error
       setPhotos(data || [])
-    } catch (error: any) {
+    } catch (error) {
       toast({
         title: "Erro ao carregar fotos",
-        description: error.message,
+        description: error instanceof Error ? error.message : "Erro desconhecido",
         variant: "destructive",
       })
     }
@@ -91,10 +108,10 @@ export default function EventPage() {
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream
       }
-    } catch (error: any) {
+    } catch (error) {
       toast({
         title: "Erro ao acessar a câmera",
-        description: error.message,
+        description: error instanceof Error ? error.message : "Erro desconhecido",
         variant: "destructive",
       })
     }
@@ -102,7 +119,10 @@ export default function EventPage() {
 
   const closeCamera = () => {
     if (stream) {
-      stream.getTracks().forEach((track) => track.stop())
+      const tracks = stream.getTracks()
+      for (const track of tracks) {
+        track.stop()
+      }
       setStream(null)
     }
     setIsCameraOpen(false)
@@ -117,56 +137,57 @@ export default function EventPage() {
 
     if (!context) return
 
-    // Set canvas dimensions to match video
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
 
-    // Draw video frame to canvas
     context.drawImage(video, 0, 0, canvas.width, canvas.height)
 
-    // Convert canvas to blob
-    canvas.toBlob(
-      async (blob) => {
-        if (!blob) return
+    try {
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              resolve(blob)
+            } else {
+              reject(new Error("Falha ao criar blob da imagem"))
+            }
+          },
+          "image/jpeg",
+          0.8
+        )
+      })
 
-        try {
-          // Generate a unique filename
-          const filename = `${id}/${Date.now()}.jpg`
+      if (!id) throw new Error("ID do evento não fornecido")
 
-          // Upload to Supabase Storage
-          const { data, error } = await supabase.storage.from("event-photos").upload(filename, blob)
+      const filename = `${id}/${Date.now()}.jpg`
 
-          if (error) throw error
+      const { data, error } = await supabase.storage.from("event-photos").upload(filename, blob)
 
-          // Save photo reference in database
-          const { error: dbError } = await supabase.from("photos").insert([
-            {
-              event_id: id,
-              storage_path: filename,
-              taken_by: "guest",
-            },
-          ])
+      if (error) throw error
 
-          if (dbError) throw dbError
+      const { error: dbError } = await supabase.from("photos").insert([
+        {
+          event_id: id,
+          storage_path: filename,
+          taken_by: "guest",
+        },
+      ])
 
-          toast({
-            title: "Foto capturada com sucesso!",
-            description: "Sua foto foi adicionada à galeria do evento.",
-          })
+      if (dbError) throw dbError
 
-          // Refresh photos
-          fetchPhotos()
-        } catch (error: any) {
-          toast({
-            title: "Erro ao salvar foto",
-            description: error.message,
-            variant: "destructive",
-          })
-        }
-      },
-      "image/jpeg",
-      0.8,
-    )
+      toast({
+        title: "Foto capturada com sucesso!",
+        description: "Sua foto foi adicionada à galeria do evento.",
+      })
+
+      fetchPhotos()
+    } catch (error) {
+      toast({
+        title: "Erro ao salvar foto",
+        description: error instanceof Error ? error.message : "Erro desconhecido",
+        variant: "destructive",
+      })
+    }
   }
 
   if (loading) {
@@ -207,7 +228,15 @@ export default function EventPage() {
       {isCameraOpen ? (
         <div className="flex flex-col items-center">
           <div className="relative w-full max-w-md overflow-hidden rounded-lg bg-black">
-            <video ref={videoRef} autoPlay playsInline className="w-full" />
+            <video 
+              ref={videoRef} 
+              autoPlay 
+              playsInline 
+              className="w-full"
+              aria-label="Câmera para captura de fotos"
+            >
+              <track kind="captions" src="" label="Câmera" />
+            </video>
             <canvas ref={canvasRef} className="hidden" />
           </div>
           <div className="flex gap-4 mt-4">
@@ -229,13 +258,17 @@ export default function EventPage() {
             </CardHeader>
             <CardContent className="flex justify-center">
               <div className="p-4 bg-white rounded-lg">
-                <QRCode
-                  value={qrCodeUrl}
-                  size={200}
-                  level="H"
-                  includeMargin={true}
-                  imageSettings={{ src: "/logo.png", height: 40, width: 40, excavate: true }}
-                />
+                {qrCodeUrl && (
+                  <QRCode
+                    value={qrCodeUrl}
+                    size={200}
+                    level="H"
+                    includeMargin={true}
+                    renderAs="svg"
+                    fgColor="#000000"
+                    bgColor="#FFFFFF"
+                  />
+                )}
               </div>
             </CardContent>
             <CardFooter className="flex justify-center">
