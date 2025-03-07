@@ -104,7 +104,7 @@ export default function EventPage() {
   const openCamera = async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
+        video: { facingMode: "user" },
         audio: false,
       })
       setStream(mediaStream)
